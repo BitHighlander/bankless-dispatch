@@ -1,0 +1,30 @@
+{
+  "name": "bankless-distpatch-matching-engine",
+  "version": "1.0.0",
+  "description": "A Node.js TypeScript starter project",
+  "main": "dist/index.js",
+  "scripts": {
+    "start": "node dist/index.js",
+    "build": "tsc",
+    "dev": "ts-node src/index.ts"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@coinmasters/core": "latest",
+    "@coinmasters/pioneer-sdk": "latest",
+    "@coinmasters/types": "latest",
+    "@coinmasters/wallet-keystore": "latest",
+    "@pioneer-platform/loggerdog": "^8.3.1",
+    "@pioneer-platform/pioneer-caip": "^9.2.23",
+    "@pioneer-platform/pioneer-coins": "^9.2.13",
+    "@pioneer-platform/redis-queue": "^8.3.1",
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^16.18.80",
+    "ts-node": "^10.9.2",
+    "typescript": "^4.9.5"
+  }
+}
