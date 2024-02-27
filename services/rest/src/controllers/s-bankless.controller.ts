@@ -494,17 +494,10 @@ export class BanklessController extends Controller {
     public async submitOrder(@Header('Authorization') authorization: string,@Body() body: any): Promise<any> {
         let tag = TAG + " | submitOrder | "
         try{
-            log.debug(tag,"body: ",body)
-            log.debug(tag,"authorization: ",authorization)
-            // if(!body.signer) throw Error("invalid signed payload missing signer!")
-            // if(!body.payload) throw Error("invalid signed payload missing payload!")
-            // if(!body.signature) throw Error("invalid signed payload missing !")
-            // if(!body.nonce) throw Error("invalid signed payload missing !")
-
-            //must be lp add or remove
-            // if(!body.terminal) throw Error("invalid terminal!")
-            // if(!body.event) throw Error("invalid event!")
-            // if(!body.terminalName) throw Error("invalid type!")
+            log.info(tag,"body: ",body)
+            log.info(tag,"authorization: ",authorization)
+            let online = await redis.smembers('online')
+            log.info(tag,"online: ",online)
 
             let session = {
                 id:uuidv4(),
@@ -516,33 +509,86 @@ export class BanklessController extends Controller {
             let result = await ordersDB.insert(session)
 
             //get terminal
-            let terminal = await terminalsDB.findOne({terminalName:'local-app-e2e-mm'})
-            console.log("get terminal: ",terminal)
+            let terminals = await terminalsDB.find()
+            console.log("get terminal: ",terminals)
+            let onlineTerminals = terminals.filter(terminal => online.includes(terminal.terminalName));
+            console.log("Online terminals: ", onlineTerminals);
+            // if(!onlineTerminals.length) throw Error("no online terminals!")
+
+            //is terminal online
 
             //get driver
-            let driver = await driversDB.findOne()
-            console.log("get driver: ",driver)
+            let drivers = await driversDB.find()
+            console.log("get driver: ",drivers)
 
-            //push match event
-            //if MM online
-            //if driver online
-            let match = {
-                id:uuidv4(),
-                terminal:terminal.terminalName,
-                driverId:"driver:"+driver.pubkey,
-                session,
-                "event":"match",
-                "type":"order",
-                driver:"",
-                mm:"",
-                "timestamp":new Date(),
-                status:"start",
-                complete:false
+            //is online?
+            let onlineDrivers = drivers.filter(driver => {
+                let driverId = "driver:" + driver.pubkey; // Ensure this matches the format in the `online` array
+                return online.includes(driverId);
+            });
+            console.log("Online drivers: ", onlineDrivers);
+
+            //is within 100 miles
+            let calculateDistance = function(p1, p2) {
+                const toRadians = degree => degree * (Math.PI / 180);
+
+                const earthRadiusMiles = 3958.8; // Radius of the Earth in miles
+
+                const lat1Radians = toRadians(p1.lat);
+                const lat2Radians = toRadians(p2.lat);
+                const deltaLatRadians = toRadians(p2.lat - p1.lat);
+                const deltaLngRadians = toRadians(p2.lng - p1.lng);
+
+                const a =
+                    Math.sin(deltaLatRadians / 2) * Math.sin(deltaLatRadians / 2) +
+                    Math.cos(lat1Radians) *
+                    Math.cos(lat2Radians) *
+                    Math.sin(deltaLngRadians / 2) *
+                    Math.sin(deltaLngRadians / 2);
+
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+                return earthRadiusMiles * c;
             }
-            publisher.publish('match',JSON.stringify(match))
 
-            log.debug(tag,"result: ",result)
-            return(result);
+            //build all permutations of drivers and terminals
+            const combinations = [];
+            onlineTerminals.forEach(terminal => {
+                onlineDrivers.forEach(driver => {
+                    const distance = calculateDistance({lat: terminal.lat, lng: terminal.lng}, {lat: driver.lat, lng: driver.lng});
+                    combinations.push({terminal, driver, distance});
+                });
+            });
+
+            // Step 3: Sort combinations by distance to find the nearest match
+            combinations.sort((a, b) => a.distance - b.distance);
+
+            // Assuming you want at least one match
+            if (combinations.length > 0) {
+                const nearestMatch = combinations[0]; // This is the nearest terminal-driver pair
+                // Proceed with creating and publishing the match event
+                let match = {
+                    id: uuidv4(),
+                    terminal: nearestMatch.terminal.terminalName || "sampleTerminal",
+                    driverId: "driver:" + nearestMatch.driver.pubkey,
+                    session,
+                    "event": "match",
+                    "type": "order",
+                    driver: nearestMatch.driver.name, // Assuming the driver object has a name property
+                    mm: "",
+                    "timestamp": new Date(),
+                    status: "start",
+                    complete: false
+                };
+                publisher.publish('match', JSON.stringify(match));
+
+                console.log("Nearest match found and published");
+                // Assuming result is the outcome you want to return
+            } else {
+                console.log("No matches found");
+                // Handle the case where no matches are found
+            }
+            return result;
         }catch(e){
             let errorResp:Error = {
                 success:false,

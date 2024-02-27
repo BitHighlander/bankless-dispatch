@@ -583,16 +583,20 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
     //startSession
     BanklessController.prototype.submitOrder = function (authorization, body) {
         return __awaiter(this, void 0, void 0, function () {
-            var tag, session, result, terminal, driver, match, e_11, errorResp;
+            var tag, online_1, session, result, terminals, onlineTerminals, drivers, onlineDrivers_1, calculateDistance_1, combinations_1, nearestMatch, match, e_11, errorResp;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
                         tag = TAG + " | submitOrder | ";
                         _a.label = 1;
                     case 1:
-                        _a.trys.push([1, 5, , 6]);
-                        log.debug(tag, "body: ", body);
-                        log.debug(tag, "authorization: ", authorization);
+                        _a.trys.push([1, 6, , 7]);
+                        log.info(tag, "body: ", body);
+                        log.info(tag, "authorization: ", authorization);
+                        return [4 /*yield*/, redis.smembers('online')];
+                    case 2:
+                        online_1 = _a.sent();
+                        log.info(tag, "online: ", online_1);
                         session = {
                             id: (0, uuid_1.v4)(),
                             market: "USD_USDC",
@@ -603,33 +607,73 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
                         return [4 /*yield*/, ordersDB.insert(session)
                             //get terminal
                         ];
-                    case 2:
-                        result = _a.sent();
-                        return [4 /*yield*/, terminalsDB.findOne({ terminalName: 'local-app-e2e-mm' })];
                     case 3:
-                        terminal = _a.sent();
-                        console.log("get terminal: ", terminal);
-                        return [4 /*yield*/, driversDB.findOne()];
+                        result = _a.sent();
+                        return [4 /*yield*/, terminalsDB.find()];
                     case 4:
-                        driver = _a.sent();
-                        console.log("get driver: ", driver);
-                        match = {
-                            id: (0, uuid_1.v4)(),
-                            terminal: terminal.terminalName,
-                            driverId: "driver:" + driver.pubkey,
-                            session: session,
-                            "event": "match",
-                            "type": "order",
-                            driver: "",
-                            mm: "",
-                            "timestamp": new Date(),
-                            status: "start",
-                            complete: false
-                        };
-                        publisher.publish('match', JSON.stringify(match));
-                        log.debug(tag, "result: ", result);
-                        return [2 /*return*/, (result)];
+                        terminals = _a.sent();
+                        console.log("get terminal: ", terminals);
+                        onlineTerminals = terminals.filter(function (terminal) { return online_1.includes(terminal.terminalName); });
+                        console.log("Online terminals: ", onlineTerminals);
+                        return [4 /*yield*/, driversDB.find()];
                     case 5:
+                        drivers = _a.sent();
+                        console.log("get driver: ", drivers);
+                        onlineDrivers_1 = drivers.filter(function (driver) {
+                            var driverId = "driver:" + driver.pubkey; // Ensure this matches the format in the `online` array
+                            return online_1.includes(driverId);
+                        });
+                        console.log("Online drivers: ", onlineDrivers_1);
+                        calculateDistance_1 = function (p1, p2) {
+                            var toRadians = function (degree) { return degree * (Math.PI / 180); };
+                            var earthRadiusMiles = 3958.8; // Radius of the Earth in miles
+                            var lat1Radians = toRadians(p1.lat);
+                            var lat2Radians = toRadians(p2.lat);
+                            var deltaLatRadians = toRadians(p2.lat - p1.lat);
+                            var deltaLngRadians = toRadians(p2.lng - p1.lng);
+                            var a = Math.sin(deltaLatRadians / 2) * Math.sin(deltaLatRadians / 2) +
+                                Math.cos(lat1Radians) *
+                                    Math.cos(lat2Radians) *
+                                    Math.sin(deltaLngRadians / 2) *
+                                    Math.sin(deltaLngRadians / 2);
+                            var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                            return earthRadiusMiles * c;
+                        };
+                        combinations_1 = [];
+                        onlineTerminals.forEach(function (terminal) {
+                            onlineDrivers_1.forEach(function (driver) {
+                                var distance = calculateDistance_1({ lat: terminal.lat, lng: terminal.lng }, { lat: driver.lat, lng: driver.lng });
+                                combinations_1.push({ terminal: terminal, driver: driver, distance: distance });
+                            });
+                        });
+                        // Step 3: Sort combinations by distance to find the nearest match
+                        combinations_1.sort(function (a, b) { return a.distance - b.distance; });
+                        // Assuming you want at least one match
+                        if (combinations_1.length > 0) {
+                            nearestMatch = combinations_1[0];
+                            match = {
+                                id: (0, uuid_1.v4)(),
+                                terminal: nearestMatch.terminal.terminalName || "sampleTerminal",
+                                driverId: "driver:" + nearestMatch.driver.pubkey,
+                                session: session,
+                                "event": "match",
+                                "type": "order",
+                                driver: nearestMatch.driver.name,
+                                mm: "",
+                                "timestamp": new Date(),
+                                status: "start",
+                                complete: false
+                            };
+                            publisher.publish('match', JSON.stringify(match));
+                            console.log("Nearest match found and published");
+                            // Assuming result is the outcome you want to return
+                        }
+                        else {
+                            console.log("No matches found");
+                            // Handle the case where no matches are found
+                        }
+                        return [2 /*return*/, result];
+                    case 6:
                         e_11 = _a.sent();
                         errorResp = {
                             success: false,
@@ -638,7 +682,7 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
                         };
                         log.error(tag, "e: ", { errorResp: errorResp });
                         throw new ApiError("error", 503, "error: " + e_11.toString());
-                    case 6: return [2 /*return*/];
+                    case 7: return [2 /*return*/];
                 }
             });
         });

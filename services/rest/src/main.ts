@@ -333,10 +333,10 @@ subscriber.on('message', async function (channel, payloadS) {
             // globalSockets[usersByUsername[payload.driver]].emit('match', payloadS)
 
             //send event to driver
-            globalSockets[usersByUsername[payload.driverId]].emit('message', payloadS)
+            if(usersByUsername[payload.driverId])globalSockets[usersByUsername[payload.driverId]].emit('message', payloadS)
 
             //send event to customer
-            globalSockets[usersByUsername[payload.terminal]].emit('message', payloadS)
+            if(usersByUsername[payload.terminal])globalSockets[usersByUsername[payload.terminal]].emit('message', payloadS)
 
         }
 
