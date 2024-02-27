@@ -229,9 +229,57 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
         });
     };
     //global Info
-    BanklessController.prototype.terminalPrivate = function (authorization, terminalName) {
+    BanklessController.prototype.driverPrivate = function (authorization, driverId) {
         return __awaiter(this, void 0, void 0, function () {
             var tag, output, accountInfo, banklessAuth, terminalInfo, sessions, e_4, errorResp;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        tag = TAG + " | driverPrivate | ";
+                        _a.label = 1;
+                    case 1:
+                        _a.trys.push([1, 6, , 7]);
+                        log.debug(tag, "queryKey: ", authorization);
+                        log.debug(tag, "driverId: ", driverId);
+                        output = {};
+                        return [4 /*yield*/, redis.hgetall(authorization)];
+                    case 2:
+                        accountInfo = _a.sent();
+                        return [4 /*yield*/, redis.hgetall("bankless:auth:" + authorization)];
+                    case 3:
+                        banklessAuth = _a.sent();
+                        log.debug(tag, "banklessAuth: ", banklessAuth);
+                        // let username = accountInfo.username
+                        // if(!username) throw Error("unknown token! token: "+authorization)
+                        log.debug(tag, "accountInfo: ", accountInfo);
+                        return [4 /*yield*/, driversDB.findOne({ driverId: driverId })];
+                    case 4:
+                        terminalInfo = _a.sent();
+                        log.debug(tag, "terminalInfo: ", terminalInfo);
+                        output.terminalInfo = terminalInfo;
+                        return [4 /*yield*/, sessionsDB.find({ driverId: driverId })];
+                    case 5:
+                        sessions = _a.sent();
+                        output.sessions = sessions;
+                        return [2 /*return*/, output];
+                    case 6:
+                        e_4 = _a.sent();
+                        errorResp = {
+                            success: false,
+                            tag: tag,
+                            e: e_4
+                        };
+                        log.error(tag, "e: ", { errorResp: errorResp });
+                        throw new ApiError("error", 503, "error: " + e_4.toString());
+                    case 7: return [2 /*return*/];
+                }
+            });
+        });
+    };
+    //global Info
+    BanklessController.prototype.terminalPrivate = function (authorization, terminalName) {
+        return __awaiter(this, void 0, void 0, function () {
+            var tag, output, accountInfo, banklessAuth, terminalInfo, sessions, e_5, errorResp;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -263,14 +311,14 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
                         output.sessions = sessions;
                         return [2 /*return*/, output];
                     case 6:
-                        e_4 = _a.sent();
+                        e_5 = _a.sent();
                         errorResp = {
                             success: false,
                             tag: tag,
-                            e: e_4
+                            e: e_5
                         };
                         log.error(tag, "e: ", { errorResp: errorResp });
-                        throw new ApiError("error", 503, "error: " + e_4.toString());
+                        throw new ApiError("error", 503, "error: " + e_5.toString());
                     case 7: return [2 /*return*/];
                 }
             });
@@ -279,7 +327,7 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
     //Submit review
     BanklessController.prototype.submitDriver = function (authorization, body) {
         return __awaiter(this, void 0, void 0, function () {
-            var tag, output, banklessAuth, entry, saveDb, e_5, errorResp;
+            var tag, output, banklessAuth, entry, saveDb, e_6, errorResp;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -306,14 +354,50 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
                         output.saveDb = saveDb;
                         return [2 /*return*/, (output)];
                     case 4:
-                        e_5 = _a.sent();
+                        e_6 = _a.sent();
                         errorResp = {
                             success: false,
                             tag: tag,
-                            e: e_5
+                            e: e_6
                         };
                         log.error(tag, "e: ", { errorResp: errorResp });
-                        throw new ApiError("error", 503, "error: " + e_5.toString());
+                        throw new ApiError("error", 503, "error: " + e_6.toString());
+                    case 5: return [2 /*return*/];
+                }
+            });
+        });
+    };
+    //startSession
+    BanklessController.prototype.updateDriver = function (authorization, body) {
+        return __awaiter(this, void 0, void 0, function () {
+            var tag, driverId, terminalInfo, txHistory, e_7, errorResp;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        tag = TAG + " | updateDriver | ";
+                        _a.label = 1;
+                    case 1:
+                        _a.trys.push([1, 4, , 5]);
+                        log.debug(tag, "body: ", body);
+                        log.debug(tag, "authorization: ", authorization);
+                        driverId = body.driverId;
+                        return [4 /*yield*/, driversDB.update({ driverId: driverId }, { $set: { location: location } })];
+                    case 2:
+                        terminalInfo = _a.sent();
+                        return [4 /*yield*/, banklessTxDB.find({ driverId: driverId })];
+                    case 3:
+                        txHistory = _a.sent();
+                        terminalInfo.txHistory = txHistory;
+                        return [2 /*return*/, (terminalInfo)];
+                    case 4:
+                        e_7 = _a.sent();
+                        errorResp = {
+                            success: false,
+                            tag: tag,
+                            e: e_7
+                        };
+                        log.error(tag, "e: ", { errorResp: errorResp });
+                        throw new ApiError("error", 503, "error: " + e_7.toString());
                     case 5: return [2 /*return*/];
                 }
             });
@@ -322,7 +406,7 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
     //Submit review
     BanklessController.prototype.submitTerminal = function (authorization, body) {
         return __awaiter(this, void 0, void 0, function () {
-            var tag, output, banklessAuth, entry, saveDb, session, e_6, errorResp;
+            var tag, output, banklessAuth, entry, saveDb, session, e_8, errorResp;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -391,14 +475,14 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
                         //txs history
                         return [2 /*return*/, (output)];
                     case 4:
-                        e_6 = _a.sent();
+                        e_8 = _a.sent();
                         errorResp = {
                             success: false,
                             tag: tag,
-                            e: e_6
+                            e: e_8
                         };
                         log.error(tag, "e: ", { errorResp: errorResp });
-                        throw new ApiError("error", 503, "error: " + e_6.toString());
+                        throw new ApiError("error", 503, "error: " + e_8.toString());
                     case 5: return [2 /*return*/];
                 }
             });
@@ -406,7 +490,7 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
     };
     BanklessController.prototype.updateTerminalCaptable = function (authorization, body) {
         return __awaiter(this, void 0, void 0, function () {
-            var tag, captable, terminalName, terminalInfo, e_7, errorResp;
+            var tag, captable, terminalName, terminalInfo, e_9, errorResp;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -423,14 +507,14 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
                         terminalInfo = _a.sent();
                         return [2 /*return*/, (terminalInfo)];
                     case 3:
-                        e_7 = _a.sent();
+                        e_9 = _a.sent();
                         errorResp = {
                             success: false,
                             tag: tag,
-                            e: e_7
+                            e: e_9
                         };
                         log.error(tag, "e: ", { errorResp: errorResp });
-                        throw new ApiError("error", 503, "error: " + e_7.toString());
+                        throw new ApiError("error", 503, "error: " + e_9.toString());
                     case 4: return [2 /*return*/];
                 }
             });
@@ -439,7 +523,7 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
     //startSession
     BanklessController.prototype.updateTerminal = function (authorization, body) {
         return __awaiter(this, void 0, void 0, function () {
-            var tag, captable, location_1, terminalName, rate, TOTAL_CASH, TOTAL_DAI, terminalInfo, txHistory, e_8, errorResp;
+            var tag, captable, location_1, terminalName, rate, TOTAL_CASH, TOTAL_DAI, terminalInfo, txHistory, e_10, errorResp;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -483,14 +567,14 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
                         terminalInfo.txHistory = txHistory;
                         return [2 /*return*/, (terminalInfo)];
                     case 4:
-                        e_8 = _a.sent();
+                        e_10 = _a.sent();
                         errorResp = {
                             success: false,
                             tag: tag,
-                            e: e_8
+                            e: e_10
                         };
                         log.error(tag, "e: ", { errorResp: errorResp });
-                        throw new ApiError("error", 503, "error: " + e_8.toString());
+                        throw new ApiError("error", 503, "error: " + e_10.toString());
                     case 5: return [2 /*return*/];
                 }
             });
@@ -499,48 +583,62 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
     //startSession
     BanklessController.prototype.submitOrder = function (authorization, body) {
         return __awaiter(this, void 0, void 0, function () {
-            var tag, session, result, e_9, errorResp;
+            var tag, session, result, terminal, driver, match, e_11, errorResp;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
                         tag = TAG + " | submitOrder | ";
                         _a.label = 1;
                     case 1:
-                        _a.trys.push([1, 3, , 4]);
+                        _a.trys.push([1, 5, , 6]);
                         log.debug(tag, "body: ", body);
                         log.debug(tag, "authorization: ", authorization);
-                        // if(!body.signer) throw Error("invalid signed payload missing signer!")
-                        // if(!body.payload) throw Error("invalid signed payload missing payload!")
-                        // if(!body.signature) throw Error("invalid signed payload missing !")
-                        // if(!body.nonce) throw Error("invalid signed payload missing !")
-                        //must be lp add or remove
-                        if (!body.type)
-                            throw Error("invalid type!");
-                        if (!body.event)
-                            throw Error("invalid event!");
-                        if (!body.terminalName)
-                            throw Error("invalid type!");
                         session = {
+                            id: (0, uuid_1.v4)(),
                             market: "USD_USDC",
                             user: body.user,
                             amount: body.amount,
                             amountOutMin: body.amountOutMin,
                         };
-                        return [4 /*yield*/, ordersDB.insert(session)];
+                        return [4 /*yield*/, ordersDB.insert(session)
+                            //get terminal
+                        ];
                     case 2:
                         result = _a.sent();
+                        return [4 /*yield*/, terminalsDB.findOne({ terminalName: 'local-app-e2e-mm' })];
+                    case 3:
+                        terminal = _a.sent();
+                        console.log("get terminal: ", terminal);
+                        return [4 /*yield*/, driversDB.findOne()];
+                    case 4:
+                        driver = _a.sent();
+                        console.log("get driver: ", driver);
+                        match = {
+                            id: (0, uuid_1.v4)(),
+                            terminal: terminal.terminalName,
+                            driverId: "driver:" + driver.pubkey,
+                            session: session,
+                            "event": "match",
+                            "type": "order",
+                            driver: "",
+                            mm: "",
+                            "timestamp": new Date(),
+                            status: "start",
+                            complete: false
+                        };
+                        publisher.publish('match', JSON.stringify(match));
                         log.debug(tag, "result: ", result);
                         return [2 /*return*/, (result)];
-                    case 3:
-                        e_9 = _a.sent();
+                    case 5:
+                        e_11 = _a.sent();
                         errorResp = {
                             success: false,
                             tag: tag,
-                            e: e_9
+                            e: e_11
                         };
                         log.error(tag, "e: ", { errorResp: errorResp });
-                        throw new ApiError("error", 503, "error: " + e_9.toString());
-                    case 4: return [2 /*return*/];
+                        throw new ApiError("error", 503, "error: " + e_11.toString());
+                    case 6: return [2 /*return*/];
                 }
             });
         });
@@ -548,7 +646,7 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
     //startSession
     BanklessController.prototype.pushEvent = function (authorization, body) {
         return __awaiter(this, void 0, void 0, function () {
-            var tag, session, result, e_10, errorResp;
+            var tag, session, result, e_12, errorResp;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -585,14 +683,14 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
                         log.debug(tag, "result: ", result);
                         return [2 /*return*/, (result)];
                     case 3:
-                        e_10 = _a.sent();
+                        e_12 = _a.sent();
                         errorResp = {
                             success: false,
                             tag: tag,
-                            e: e_10
+                            e: e_12
                         };
                         log.error(tag, "e: ", { errorResp: errorResp });
-                        throw new ApiError("error", 503, "error: " + e_10.toString());
+                        throw new ApiError("error", 503, "error: " + e_12.toString());
                     case 4: return [2 /*return*/];
                 }
             });
@@ -601,7 +699,7 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
     //startSession
     BanklessController.prototype.startSession = function (authorization, body) {
         return __awaiter(this, void 0, void 0, function () {
-            var tag, actionId, resultCreate, result, e_11, errorResp;
+            var tag, actionId, resultCreate, result, e_13, errorResp;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -636,14 +734,14 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
                         log.debug(tag, "result: ", result);
                         return [2 /*return*/, (result)];
                     case 3:
-                        e_11 = _a.sent();
+                        e_13 = _a.sent();
                         errorResp = {
                             success: false,
                             tag: tag,
-                            e: e_11
+                            e: e_13
                         };
                         log.error(tag, "e: ", { errorResp: errorResp });
-                        throw new ApiError("error", 503, "error: " + e_11.toString());
+                        throw new ApiError("error", 503, "error: " + e_13.toString());
                     case 4: return [2 /*return*/];
                 }
             });
@@ -659,6 +757,10 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
         (0, tsoa_1.Get)('/bankless/terminal/{terminalName}')
     ], BanklessController.prototype, "terminalListing", null);
     __decorate([
+        (0, tsoa_1.Get)('/bankless/driver/private/{driverId}'),
+        __param(0, (0, tsoa_1.Header)('Authorization'))
+    ], BanklessController.prototype, "driverPrivate", null);
+    __decorate([
         (0, tsoa_1.Get)('/bankless/terminal/private/{terminalName}'),
         __param(0, (0, tsoa_1.Header)('Authorization'))
     ], BanklessController.prototype, "terminalPrivate", null);
@@ -669,6 +771,13 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
         __param(0, (0, tsoa_1.Header)('Authorization')),
         __param(1, (0, tsoa_1.Body)())
     ], BanklessController.prototype, "submitDriver", null);
+    __decorate([
+        (0, tsoa_1.Post)('/bankless/driver/update')
+        //CreateAppBody
+        ,
+        __param(0, (0, tsoa_1.Header)('Authorization')),
+        __param(1, (0, tsoa_1.Body)())
+    ], BanklessController.prototype, "updateDriver", null);
     __decorate([
         (0, tsoa_1.Post)('/bankless/terminal/submit')
         //CreateAppBody

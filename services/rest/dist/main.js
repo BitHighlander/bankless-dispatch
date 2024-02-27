@@ -54,7 +54,6 @@ var cors = require('cors');
 var body_parser_1 = __importDefault(require("body-parser"));
 var express_1 = __importDefault(require("express"));
 var method_override_1 = __importDefault(require("method-override"));
-var cookie_1 = require("cookie");
 var routes_1 = require("./routes/routes"); // here
 var swaggerUi = require('swagger-ui-express');
 var swaggerDocument = require('../api/dist/swagger.json');
@@ -184,37 +183,12 @@ app.use(['/', '/assets', '/coins', '/docs'], createProxyMiddleware({
         delete proxyRes.headers['public-key-pins'];
     }
 }));
-//redis-bridge
-subscriber.subscribe('pioneer-events');
-subscriber.subscribe('payments');
-subscriber.subscribe('pioneer:transactions:all');
-subscriber.on('message', function (channel, payloadS) {
-    return __awaiter(this, void 0, void 0, function () {
-        var tag, payload;
-        return __generator(this, function (_a) {
-            tag = TAG + ' | publishToFront | ';
-            try {
-                log.debug(tag, "event: ", payloadS);
-                //Push event over socket
-                if (channel === 'payments') {
-                    payload = JSON.parse(payloadS);
-                    payload.event = 'transaction';
-                    payloadS = JSON.stringify(payload);
-                }
-                //legacy hack
-                if (channel === 'payments')
-                    channel = 'events';
-                //
-                io.emit(channel, payloadS);
-            }
-            catch (e) {
-                log.error(tag, e);
-                throw e;
-            }
-            return [2 /*return*/];
-        });
-    });
-});
+//globals
+var globalSockets = {};
+var usersBySocketId = {};
+var usersByUsername = {};
+var usersByKey = {};
+var channel_history_max = 10;
 //Error handeling
 function errorHandler(err, req, res, next) {
     if (res.headersSent) {
@@ -228,21 +202,219 @@ function errorHandler(err, req, res, next) {
 }
 app.use(errorHandler);
 server.listen(API_PORT, function () { return console.log("Server started listening to port ".concat(API_PORT)); });
+/**
+ *
+ * subscribe to Payments
+ *       Socket.io
+ *
+ *       Goals:
+ *          * User subs to individual feed
+ *          * announce when online
+ *
+ *
+ */
 io.on('connection', function (socket) {
-    // Get the raw request object from the socket handshake
-    var rawRequest = socket.request;
-    function parseYourCookie(cookieHeader) {
-        //log.info("cookieHeader: ",cookieHeader)
-        var cookies = (0, cookie_1.parse)(cookieHeader || '');
-        return cookies['example']; // Replace with the actual cookie name
-    }
-    // Parse and get your desired cookie value from the request
-    var cookieValue = parseYourCookie(rawRequest.headers.cookie); // Implement this function
-    // Serialize the cookie for the socket connection
-    var serializedCookie = (0, cookie_1.serialize)(COOKIE_NAME, cookieValue, {
-        sameSite: 'strict',
+    return __awaiter(this, void 0, void 0, function () {
+        var tag;
+        return __generator(this, function (_a) {
+            tag = TAG + ' | io connection | ';
+            log.info(tag, 'a user connected', socket.id, " user: ", usersByUsername[socket.id]);
+            redis.sadd("online:users", socket.id);
+            redis.hincrby("globals", "usersOnline", Object.keys(usersByUsername).length);
+            //set into global
+            globalSockets[socket.id] = socket;
+            socket.on('disconnect', function () {
+                var username = usersBySocketId[socket.id];
+                log.debug(tag, socket.id + " username: " + username + ' disconnected');
+                redis.srem('online', username);
+                //remove socket.id from username list
+                if (usersByUsername[username])
+                    usersByUsername[username].splice(usersByUsername[username].indexOf(socket.id), 1);
+                delete globalSockets[socket.id];
+                delete usersBySocketId[socket.id];
+                redis.hset("globals", "usersOnline", Object.keys(usersByUsername).length);
+            });
+            socket.on('join', function (msg) {
+                return __awaiter(this, void 0, void 0, function () {
+                    var queryKey, queryKeyInfo, subscribePayload, error, subscribePayload, error, connectPayload;
+                    return __generator(this, function (_a) {
+                        switch (_a.label) {
+                            case 0:
+                                log.debug(tag, '**** Join event! : ', typeof (msg));
+                                //if(typeof(msg) === "string") msg = JSON.parse(msg)
+                                log.debug(tag, "message: ", msg);
+                                queryKey = msg.queryKey;
+                                if (!(queryKey && msg.username)) return [3 /*break*/, 8];
+                                log.debug(tag, "GIVEN: username: ", msg.username);
+                                return [4 /*yield*/, redis.hgetall(queryKey)];
+                            case 1:
+                                queryKeyInfo = _a.sent();
+                                log.debug(tag, "ACTUAL: username: ", queryKeyInfo.username);
+                                if (!(queryKeyInfo.username === msg.username)) return [3 /*break*/, 2];
+                                log.debug(tag, "session valid starting!");
+                                log.debug(tag, "socket.id: ", socket.id);
+                                log.debug(tag, "msg.username: ", msg.username);
+                                usersBySocketId[socket.id] = msg.username;
+                                if (!usersByUsername[msg.username])
+                                    usersByUsername[msg.username] = [];
+                                usersByUsername[msg.username].push(socket.id);
+                                redis.sadd('online', msg.username);
+                                subscribePayload = {
+                                    socketId: socket.id,
+                                    success: true,
+                                    username: msg.username
+                                };
+                                globalSockets[socket.id].emit('subscribedToUsername', subscribePayload);
+                                return [3 /*break*/, 7];
+                            case 2:
+                                if (!(queryKeyInfo.username && queryKeyInfo.username !== msg.username)) return [3 /*break*/, 3];
+                                log.error(tag, "Failed to join! pubkeyInfo.username: " + queryKeyInfo.username + " msg.username: " + msg.username);
+                                error = {
+                                    code: 6,
+                                    msg: "(error) Failed to join! pubkeyInfo.username: " + queryKeyInfo.username + " msg.username: " + msg.username
+                                };
+                                globalSockets[socket.id].emit('errorMessage', error);
+                                return [3 /*break*/, 7];
+                            case 3:
+                                if (!!queryKeyInfo.username) return [3 /*break*/, 6];
+                                //new queryKey
+                                //register Username
+                                log.debug(tag, "New queryKey! msg.username: ", msg.username);
+                                return [4 /*yield*/, redis.hset(queryKey, "username", msg.username)];
+                            case 4:
+                                _a.sent();
+                                return [4 /*yield*/, redis.hset(msg.username, "queryKey", queryKey)];
+                            case 5:
+                                _a.sent();
+                                usersBySocketId[socket.id] = msg.username;
+                                if (!usersByUsername[msg.username])
+                                    usersByUsername[msg.username] = [];
+                                usersByUsername[msg.username].push(socket.id);
+                                redis.sadd('online', msg.username);
+                                subscribePayload = {
+                                    socketId: socket.id,
+                                    success: true,
+                                    username: msg.username
+                                };
+                                globalSockets[socket.id].emit('subscribedToUsername', subscribePayload);
+                                return [3 /*break*/, 7];
+                            case 6:
+                                log.error(tag, "Failed to join! pubkeyInfo.username: " + queryKeyInfo.username + " msg.username: " + msg.username);
+                                error = {
+                                    code: 7,
+                                    msg: "Failed to join! unknown queryKey!"
+                                };
+                                globalSockets[socket.id].emit('errorMessage', error);
+                                _a.label = 7;
+                            case 7: return [3 /*break*/, 9];
+                            case 8:
+                                if (msg.queryKey) {
+                                    log.debug(tag, "No username given! subbing to queryKey!");
+                                    if (!usersByKey[msg.queryKey]) {
+                                        usersByKey[msg.queryKey] = [socket.id];
+                                    }
+                                    else {
+                                        usersByKey[msg.queryKey].push(socket.id);
+                                    } //edge case multiple sockets on same key, push to all
+                                    connectPayload = {
+                                        success: true,
+                                    };
+                                    globalSockets[socket.id].emit('connected', connectPayload);
+                                    log.debug(tag, "sdk subscribed to apiKey: ", msg.queryKey);
+                                    log.debug(tag, "usersByKey: ", usersByKey);
+                                }
+                                else {
+                                    log.error(tag, "invalid join request! ");
+                                }
+                                _a.label = 9;
+                            case 9: return [2 /*return*/];
+                        }
+                    });
+                });
+            });
+            socket.on('event', function (msg) {
+                log.debug(tag, 'event ****************: ' + msg);
+            });
+            socket.on('message', function (msg) {
+                log.debug(tag, 'message ****************: ', msg);
+                if (msg.actionId) {
+                    //actionId
+                    redis.lpush(msg.actionId, JSON.stringify(msg));
+                }
+            });
+            socket.on('error', function (msg) {
+                log.error(tag, 'error message ****************: ', msg);
+            });
+            return [2 /*return*/];
+        });
     });
-    // Set the serialized cookie in the socket handshake headers
-    socket.handshake.headers.cookie = serializedCookie;
-    // Now you can use the cookie in your WebSocket connection
 });
+//redis-bridge
+subscriber.subscribe('pioneer-events');
+subscriber.subscribe('match');
+subscriber.subscribe('payments');
+subscriber.subscribe('message');
+subscriber.subscribe('pioneer:transactions:all');
+subscriber.on('message', function (channel, payloadS) {
+    return __awaiter(this, void 0, void 0, function () {
+        var tag, payload, payload;
+        return __generator(this, function (_a) {
+            tag = TAG + ' | publishToFront | ';
+            try {
+                log.debug(tag, "channel: ", channel);
+                log.info(tag, "event: ", payloadS);
+                //Push event over socket
+                if (channel === 'payments') {
+                    payload = JSON.parse(payloadS);
+                    payload.event = 'transaction';
+                    payloadS = JSON.stringify(payload);
+                }
+                //legacy hack
+                if (channel === 'payments')
+                    channel = 'events';
+                if (channel === 'match') {
+                    payload = JSON.parse(payloadS);
+                    console.log("payload: ", payload);
+                    // console.log("usersByUsername: ",usersByUsername)
+                    // console.log("globalSockets: ",globalSockets)
+                    console.log("usersByUsername[payload.driver]: ", usersByUsername[payload.driverId]);
+                    console.log("usersByUsername[payload.terminal]: ", usersByUsername[payload.terminal]);
+                    //send event to market maker
+                    // globalSockets[usersByUsername[payload.driver]].emit('match', payloadS)
+                    //send event to driver
+                    globalSockets[usersByUsername[payload.driverId]].emit('message', payloadS);
+                    //send event to customer
+                    globalSockets[usersByUsername[payload.terminal]].emit('message', payloadS);
+                }
+            }
+            catch (e) {
+                log.error(tag, e);
+                // throw e
+            }
+            return [2 /*return*/];
+        });
+    });
+});
+// io.on('connection', (socket) => {
+//     // Get the raw request object from the socket handshake
+//     const rawRequest = socket.request;
+//
+//     function parseYourCookie(cookieHeader) {
+//         //log.info("cookieHeader: ",cookieHeader)
+//         const cookies = parse(cookieHeader || '');
+//         return cookies['example']; // Replace with the actual cookie name
+//     }
+//
+//     // Parse and get your desired cookie value from the request
+//     const cookieValue = parseYourCookie(rawRequest.headers.cookie); // Implement this function
+//
+//     // Serialize the cookie for the socket connection
+//     const serializedCookie = serialize(COOKIE_NAME, cookieValue, {
+//         sameSite: 'strict',
+//     });
+//
+//     // Set the serialized cookie in the socket handshake headers
+//     socket.handshake.headers.cookie = serializedCookie;
+//
+//     // Now you can use the cookie in your WebSocket connection
+// });

@@ -156,6 +156,46 @@ export class BanklessController extends Controller {
     }
 
     //global Info
+    @Get('/bankless/driver/private/{driverId}')
+    public async driverPrivate(@Header('Authorization') authorization: string, driverId: string) {
+        let tag = TAG + " | driverPrivate | "
+        try{
+            log.debug(tag,"queryKey: ",authorization)
+            log.debug(tag,"driverId: ",driverId)
+            let output:any = {}
+            let accountInfo = await redis.hgetall(authorization)
+            let banklessAuth = await redis.hgetall("bankless:auth:"+authorization)
+            log.debug(tag,"banklessAuth: ",banklessAuth)
+            // let username = accountInfo.username
+            // if(!username) throw Error("unknown token! token: "+authorization)
+            log.debug(tag,"accountInfo: ",accountInfo)
+
+            //if valid give terminal history
+            let terminalInfo = await driversDB.findOne({driverId})
+            log.debug(tag,"terminalInfo: ",terminalInfo)
+            output.terminalInfo = terminalInfo
+
+            //get last txs
+
+            //get cap table
+
+            //get sessions:
+            let sessions = await sessionsDB.find({driverId})
+            output.sessions = sessions
+
+            return output
+        }catch(e){
+            let errorResp:Error = {
+                success:false,
+                tag,
+                e
+            }
+            log.error(tag,"e: ",{errorResp})
+            throw new ApiError("error",503,"error: "+e.toString());
+        }
+    }
+
+    //global Info
     @Get('/bankless/terminal/private/{terminalName}')
     public async terminalPrivate(@Header('Authorization') authorization: string, terminalName: string) {
         let tag = TAG + " | terminalPrivate | "
@@ -222,6 +262,47 @@ export class BanklessController extends Controller {
 
 
             return(output);
+        }catch(e){
+            let errorResp:Error = {
+                success:false,
+                tag,
+                e
+            }
+            log.error(tag,"e: ",{errorResp})
+            throw new ApiError("error",503,"error: "+e.toString());
+        }
+    }
+
+
+    //startSession
+    @Post('/bankless/driver/update')
+    //CreateAppBody
+    public async updateDriver(@Header('Authorization') authorization: string,@Body() body: any): Promise<any> {
+        let tag = TAG + " | updateDriver | "
+        try{
+            log.debug(tag,"body: ",body)
+            log.debug(tag,"authorization: ",authorization)
+            // if(!body.signer) throw Error("invalid signed payload missing signer!")
+            // if(!body.payload) throw Error("invalid signed payload missing payload!")
+            // if(!body.signature) throw Error("invalid signed payload missing !")
+            // if(!body.nonce) throw Error("invalid signed payload missing !")
+            let driverId  = body.driverId
+
+            //@TODO update auth
+            //must be lp add or remove
+            //must be terminal add or remove
+
+            //publisher.publish('bankless', JSON.stringify({type:"rate",payload:{terminalName, rate, TOTAL_CASH, TOTAL_DAI}}))
+
+            let terminalInfo = await driversDB.update(
+                { driverId },
+                { $set: { location } }
+            );
+
+            //get public tx history
+            let txHistory = await banklessTxDB.find({driverId})
+            terminalInfo.txHistory = txHistory
+            return(terminalInfo);
         }catch(e){
             let errorResp:Error = {
                 success:false,
@@ -421,17 +502,44 @@ export class BanklessController extends Controller {
             // if(!body.nonce) throw Error("invalid signed payload missing !")
 
             //must be lp add or remove
-            if(!body.type) throw Error("invalid type!")
-            if(!body.event) throw Error("invalid event!")
-            if(!body.terminalName) throw Error("invalid type!")
+            // if(!body.terminal) throw Error("invalid terminal!")
+            // if(!body.event) throw Error("invalid event!")
+            // if(!body.terminalName) throw Error("invalid type!")
 
             let session = {
+                id:uuidv4(),
                 market:"USD_USDC",
                 user:body.user,
                 amount:body.amount,
                 amountOutMin:body.amountOutMin,
             }
             let result = await ordersDB.insert(session)
+
+            //get terminal
+            let terminal = await terminalsDB.findOne({terminalName:'local-app-e2e-mm'})
+            console.log("get terminal: ",terminal)
+
+            //get driver
+            let driver = await driversDB.findOne()
+            console.log("get driver: ",driver)
+
+            //push match event
+            //if MM online
+            //if driver online
+            let match = {
+                id:uuidv4(),
+                terminal:terminal.terminalName,
+                driverId:"driver:"+driver.pubkey,
+                session,
+                "event":"match",
+                "type":"order",
+                driver:"",
+                mm:"",
+                "timestamp":new Date(),
+                status:"start",
+                complete:false
+            }
+            publisher.publish('match',JSON.stringify(match))
 
             log.debug(tag,"result: ",result)
             return(result);

@@ -1,6 +1,6 @@
 {
   "entryFile": "./src/main.ts",
-  "host": "coinmastersguild.com",
+  "host": "cash2btc.com",
   "schemes": ["https","wss"],
   "noImplicitAdditionalProperties": "silently-remove-extras",
   "basePath": "/api/v1",
@@ -10,7 +10,7 @@
     "./src/controllers/**/*controller.ts"
   ],
   "spec": {
-    "host": "coinmastersguild.com",
+    "host": "cash2btc.com",
     "schemes": ["https","wss"],
     "basePath": "/api/v1",
     "entryFile": "./src/main.ts",
