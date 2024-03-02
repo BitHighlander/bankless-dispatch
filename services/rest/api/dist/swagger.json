@@ -421,9 +421,9 @@
 				}
 			}
 		},
-		"/bankless/terminal/event": {
+		"/bankless/order/update": {
 			"post": {
-				"operationId": "PushEvent",
+				"operationId": "UpdateOrder",
 				"responses": {
 					"200": {
 						"description": "Ok",

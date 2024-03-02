@@ -175,7 +175,7 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
                         _a.label = 1;
                     case 1:
                         _a.trys.push([1, 3, , 4]);
-                        return [4 /*yield*/, terminalsDB.find({})];
+                        return [4 /*yield*/, terminalsDB.find()];
                     case 2:
                         allTerminals = _a.sent();
                         return [2 /*return*/, allTerminals];
@@ -456,7 +456,7 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
                         return [4 /*yield*/, terminalsDB.insert(entry)];
                     case 3:
                         saveDb = _a.sent();
-                        log.debug(tag, "saveDb: ", saveDb);
+                        log.info(tag, "saveDb: ", saveDb);
                         output.success = true;
                         output.saveDb = saveDb;
                         session = {
@@ -558,7 +558,7 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
                         TOTAL_CASH = body.TOTAL_CASH;
                         TOTAL_DAI = body.TOTAL_DAI;
                         publisher.publish('bankless', JSON.stringify({ type: "rate", payload: { terminalName: terminalName, rate: rate, TOTAL_CASH: TOTAL_CASH, TOTAL_DAI: TOTAL_DAI } }));
-                        return [4 /*yield*/, terminalsDB.update({ terminalName: terminalName }, { $set: { location: location_1, rate: rate, TOTAL_CASH: TOTAL_CASH, TOTAL_DAI: TOTAL_DAI, captable: captable } })];
+                        return [4 /*yield*/, terminalsDB.update({ terminalName: terminalName }, { $set: { location: location_1, rate: rate, TOTAL_CASH: TOTAL_CASH, TOTAL_DAI: TOTAL_DAI, captable: captable, inventory: inventory } })];
                     case 2:
                         terminalInfo = _a.sent();
                         return [4 /*yield*/, banklessTxDB.find({ terminalName: terminalName })];
@@ -653,11 +653,12 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
                             nearestMatch = combinations_1[0];
                             match = {
                                 id: (0, uuid_1.v4)(),
+                                customerId: "customer:" + session.user,
                                 terminal: nearestMatch.terminal.terminalName || "sampleTerminal",
+                                terminalWallet: nearestMatch.terminal.pubkey,
                                 driverId: "driver:" + nearestMatch.driver.pubkey,
                                 session: session,
-                                "event": "match",
-                                "type": "order",
+                                "type": "match",
                                 driver: nearestMatch.driver.name,
                                 mm: "",
                                 "timestamp": new Date(),
@@ -688,45 +689,53 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
         });
     };
     //startSession
-    BanklessController.prototype.pushEvent = function (authorization, body) {
+    BanklessController.prototype.updateOrder = function (authorization, body) {
         return __awaiter(this, void 0, void 0, function () {
-            var tag, session, result, e_12, errorResp;
+            var tag, output, orderNew, result, orderNew, result, e_12, errorResp;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
-                        tag = TAG + " | pushEvent | ";
+                        tag = TAG + " | updateOrder | ";
                         _a.label = 1;
                     case 1:
-                        _a.trys.push([1, 3, , 4]);
+                        _a.trys.push([1, 6, , 7]);
+                        output = {};
                         log.debug(tag, "body: ", body);
                         log.debug(tag, "authorization: ", authorization);
                         // if(!body.signer) throw Error("invalid signed payload missing signer!")
                         // if(!body.payload) throw Error("invalid signed payload missing payload!")
                         // if(!body.signature) throw Error("invalid signed payload missing !")
                         // if(!body.nonce) throw Error("invalid signed payload missing !")
-                        //must be lp add or remove
-                        if (!body.type)
-                            throw Error("invalid type!");
-                        if (!body.event)
-                            throw Error("invalid event!");
-                        if (!body.terminalName)
-                            throw Error("invalid type!");
-                        session = {
-                            terminalName: body.terminalName,
-                            type: body.type,
-                            event: body.event,
-                            sessionId: body.sessionId,
-                            location: body.location,
-                            rate: body.rate,
-                            TOTAL_CASH: body.TOTAL_CASH,
-                            TOTAL_DAI: body.TOTAL_DAI,
+                        if (!body.orderId)
+                            throw Error("invalid orderId required!");
+                        if (!(body.type === 'funding')) return [3 /*break*/, 3];
+                        orderNew = {
+                            funded: true,
+                            txid: body.txid
                         };
-                        return [4 /*yield*/, sessionsDB.insert(session)];
+                        return [4 /*yield*/, ordersDB.update({ orderId: body.orderId }, orderNew)];
                     case 2:
                         result = _a.sent();
-                        log.debug(tag, "result: ", result);
-                        return [2 /*return*/, (result)];
+                        output.result = result;
+                        _a.label = 3;
                     case 3:
+                        if (!(body.type === 'acceptDriver')) return [3 /*break*/, 5];
+                        orderNew = {
+                            funded: true,
+                            txid: body.txid
+                        };
+                        return [4 /*yield*/, ordersDB.update({ orderId: body.orderId }, orderNew)];
+                    case 4:
+                        result = _a.sent();
+                        output.result = result;
+                        _a.label = 5;
+                    case 5:
+                        //must be lp add or remove
+                        // if(!body.event) throw Error("invalid event!")
+                        // if(!body.terminalName) throw Error("invalid type!")
+                        log.debug(tag, "output: ", output);
+                        return [2 /*return*/, (output)];
+                    case 6:
                         e_12 = _a.sent();
                         errorResp = {
                             success: false,
@@ -735,11 +744,53 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
                         };
                         log.error(tag, "e: ", { errorResp: errorResp });
                         throw new ApiError("error", 503, "error: " + e_12.toString());
-                    case 4: return [2 /*return*/];
+                    case 7: return [2 /*return*/];
                 }
             });
         });
     };
+    // //startSession
+    // @Post('/bankless/terminal/event')
+    // //CreateAppBody
+    // public async pushEvent(@Header('Authorization') authorization: string,@Body() body: any): Promise<any> {
+    //     let tag = TAG + " | pushEvent | "
+    //     try{
+    //         log.debug(tag,"body: ",body)
+    //         log.debug(tag,"authorization: ",authorization)
+    //         // if(!body.signer) throw Error("invalid signed payload missing signer!")
+    //         // if(!body.payload) throw Error("invalid signed payload missing payload!")
+    //         // if(!body.signature) throw Error("invalid signed payload missing !")
+    //         // if(!body.nonce) throw Error("invalid signed payload missing !")
+    //
+    //         //must be lp add or remove
+    //         if(!body.type) throw Error("invalid type!")
+    //         if(!body.event) throw Error("invalid event!")
+    //         if(!body.terminalName) throw Error("invalid type!")
+    //
+    //         let session = {
+    //             terminalName:body.terminalName,
+    //             type:body.type,
+    //             event:body.event,
+    //             sessionId:body.sessionId,
+    //             location:body.location,
+    //             rate:body.rate,
+    //             TOTAL_CASH:body.TOTAL_CASH,
+    //             TOTAL_DAI:body.TOTAL_DAI,
+    //         }
+    //         let result = await sessionsDB.insert(session)
+    //
+    //         log.debug(tag,"result: ",result)
+    //         return(result);
+    //     }catch(e){
+    //         let errorResp:Error = {
+    //             success:false,
+    //             tag,
+    //             e
+    //         }
+    //         log.error(tag,"e: ",{errorResp})
+    //         throw new ApiError("error",503,"error: "+e.toString());
+    //     }
+    // }
     //startSession
     BanklessController.prototype.startSession = function (authorization, body) {
         return __awaiter(this, void 0, void 0, function () {
@@ -851,12 +902,12 @@ var BanklessController = exports.BanklessController = /** @class */ (function (_
         __param(1, (0, tsoa_1.Body)())
     ], BanklessController.prototype, "submitOrder", null);
     __decorate([
-        (0, tsoa_1.Post)('/bankless/terminal/event')
+        (0, tsoa_1.Post)('/bankless/order/update')
         //CreateAppBody
         ,
         __param(0, (0, tsoa_1.Header)('Authorization')),
         __param(1, (0, tsoa_1.Body)())
-    ], BanklessController.prototype, "pushEvent", null);
+    ], BanklessController.prototype, "updateOrder", null);
     __decorate([
         (0, tsoa_1.Post)('/bankless/terminal/startSession')
         //CreateAppBody

@@ -42,6 +42,7 @@ let sessionsDB = connection.get('bankless-sessions')
 terminalsDB.createIndex({terminalId: 1}, {unique: true})
 blockchainsDB.createIndex({blockchain: 1}, {unique: true})
 // blockchainsDB.createIndex({chainId: 1}, {unique: true})
+driversDB.createIndex({pubkey: 1}, {unique: true})
 nodesDB.createIndex({service: 1}, {unique: true})
 usersDB.createIndex({id: 1}, {unique: true})
 usersDB.createIndex({username: 1}, {unique: true})
@@ -109,7 +110,7 @@ export class BanklessController extends Controller {
         try{
 
             //get all terminals
-            let allTerminals = await terminalsDB.find({})
+            let allTerminals = await terminalsDB.find()
 
             return allTerminals
         }catch(e){
@@ -171,9 +172,9 @@ export class BanklessController extends Controller {
             log.debug(tag,"accountInfo: ",accountInfo)
 
             //if valid give terminal history
-            let terminalInfo = await driversDB.findOne({driverId})
-            log.debug(tag,"terminalInfo: ",terminalInfo)
-            output.terminalInfo = terminalInfo
+            let driverInfo = await driversDB.findOne({driverId})
+            log.debug(tag,"driverInfo: ",driverInfo)
+            output.driverInfo = driverInfo
 
             //get last txs
 
@@ -253,6 +254,7 @@ export class BanklessController extends Controller {
             //area of coverage
             let entry = {
                 pubkey:body.pubkey,
+                driverId:'driver:'+body.pubkey,
                 created: new Date().getTime(),
                 location:body.location
             }
@@ -296,7 +298,7 @@ export class BanklessController extends Controller {
 
             let terminalInfo = await driversDB.update(
                 { driverId },
-                { $set: { location } }
+                { $set: { location:body.location } }
             );
 
             //get public tx history
@@ -331,7 +333,9 @@ export class BanklessController extends Controller {
             if(!body.TOTAL_CASH) throw Error("invalid TOTAL_CASH missing !")
             if(!body.TOTAL_DAI) throw Error("invalid TOTAL_DAI missing !")
             if(!body.location) throw Error("invalid location missing !")
+            if(!body.address) throw Error("invalid address missing !")
             if(!body.captable) throw Error("invalid captable missing !")
+            if(!body.inventory) throw Error("invalid inventory missing !")
 
             let output:any = {}
 
@@ -351,12 +355,14 @@ export class BanklessController extends Controller {
                 pubkey:body.pubkey,
                 TOTAL_CASH:body.TOTAL_CASH,
                 TOTAL_DAI:body.TOTAL_DAI,
+                inventory:body.inventory,
+                address:body.address,
                 captable:body.captable,
                 fact:"",
                 location:body.location
             }
             let saveDb = await terminalsDB.insert(entry)
-            log.debug(tag,"saveDb: ",saveDb)
+            log.info(tag,"saveDb: ",saveDb)
             output.success = true
             output.saveDb = saveDb
             //start session
@@ -442,10 +448,12 @@ export class BanklessController extends Controller {
             if(!body.TOTAL_DAI) throw Error("invalid TOTAL_DAI missing !")
             if(!body.location) throw Error("invalid location missing !")
             if(!body.captable) throw Error("invalid captable missing !")
+            if(!body.inventory) throw Error("invalid inventory missing !")
 
             //@TODO update auth
             //must be lp add or remove
             //must be terminal add or remove
+            let inventory = body.inventory
             let captable = body.captable
             let location = body.location
             let terminalName = body.terminalName
@@ -457,7 +465,7 @@ export class BanklessController extends Controller {
 
             let terminalInfo = await terminalsDB.update(
                 { terminalName },
-                { $set: { location, rate, TOTAL_CASH, TOTAL_DAI, captable } }
+                { $set: { location, rate, TOTAL_CASH, TOTAL_DAI, captable, inventory } }
             );
 
             //start session
@@ -494,19 +502,14 @@ export class BanklessController extends Controller {
     public async submitOrder(@Header('Authorization') authorization: string,@Body() body: any): Promise<any> {
         let tag = TAG + " | submitOrder | "
         try{
+            let output:any = {}
+            if(!body.address) throw Error("Must submit a phsyical address for delivery")
+            //TODO validate address!
+
             log.info(tag,"body: ",body)
             log.info(tag,"authorization: ",authorization)
             let online = await redis.smembers('online')
             log.info(tag,"online: ",online)
-
-            let session = {
-                id:uuidv4(),
-                market:"USD_USDC",
-                user:body.user,
-                amount:body.amount,
-                amountOutMin:body.amountOutMin,
-            }
-            let result = await ordersDB.insert(session)
 
             //get terminal
             let terminals = await terminalsDB.find()
@@ -563,17 +566,25 @@ export class BanklessController extends Controller {
             // Step 3: Sort combinations by distance to find the nearest match
             combinations.sort((a, b) => a.distance - b.distance);
 
+            let orderId = uuidv4()
+            output.orderId = orderId
             // Assuming you want at least one match
             if (combinations.length > 0) {
                 const nearestMatch = combinations[0]; // This is the nearest terminal-driver pair
                 // Proceed with creating and publishing the match event
                 let match = {
-                    id: uuidv4(),
+                    id: orderId,
+                    market:"USD_USDC",
+                    user:body.user,
+                    amount:body.amount,
+                    customerAddress:body.address,
+                    marketMakerAddress: nearestMatch.terminal.address,
+                    amountOutMin:body.amountOutMin,
+                    customerId: "customer:" + body.user,
                     terminal: nearestMatch.terminal.terminalName || "sampleTerminal",
+                    terminalWallet: nearestMatch.terminal.pubkey,
                     driverId: "driver:" + nearestMatch.driver.pubkey,
-                    session,
-                    "event": "match",
-                    "type": "order",
+                    "type": "match",
                     driver: nearestMatch.driver.name, // Assuming the driver object has a name property
                     mm: "",
                     "timestamp": new Date(),
@@ -582,13 +593,28 @@ export class BanklessController extends Controller {
                 };
                 publisher.publish('match', JSON.stringify(match));
 
+
+                let result = await ordersDB.insert(match)
+                output.result = result
                 console.log("Nearest match found and published");
                 // Assuming result is the outcome you want to return
             } else {
                 console.log("No matches found");
+                output.message = "No Matchs Found!"
+                output.status = "unmatched"
+                let ordersubmit = {
+                    id: orderId,
+                    market:"USD_USDC",
+                    user:body.user,
+                    amount:body.amount,
+                    amountOutMin:body.amountOutMin,
+                };
+                let result = await ordersDB.insert(ordersubmit)
+                output.result = result
+
                 // Handle the case where no matches are found
             }
-            return result;
+            return output;
         }catch(e){
             let errorResp:Error = {
                 success:false,
@@ -601,37 +627,74 @@ export class BanklessController extends Controller {
     }
 
     //startSession
-    @Post('/bankless/terminal/event')
+    @Post('/bankless/order/update')
     //CreateAppBody
-    public async pushEvent(@Header('Authorization') authorization: string,@Body() body: any): Promise<any> {
-        let tag = TAG + " | pushEvent | "
+    public async updateOrder(@Header('Authorization') authorization: string,@Body() body: any): Promise<any> {
+        let tag = TAG + " | updateOrder | "
         try{
+            let output:any = {}
             log.debug(tag,"body: ",body)
             log.debug(tag,"authorization: ",authorization)
             // if(!body.signer) throw Error("invalid signed payload missing signer!")
             // if(!body.payload) throw Error("invalid signed payload missing payload!")
             // if(!body.signature) throw Error("invalid signed payload missing !")
             // if(!body.nonce) throw Error("invalid signed payload missing !")
+            if(!body.orderId) throw Error("invalid orderId required!")
+
+            if(body.type === 'funding'){
+                let orderNew = {
+                    funded:true,
+                    txid:body.txid
+                }
+                let result = await ordersDB.update({orderId:body.orderId},orderNew)
+                output.result = result
+            }
+
+            if(body.type === 'acceptDriver'){
+                let orderNew = {
+                    driverAssigned:true,
+                }
+                let result = await ordersDB.update({orderId:body.orderId},orderNew)
+                output.result = result
+            }
+
+
+            if(body.type === 'rejectDriver'){
+                //get all online drivers
+                let online = await redis.smembers('online')
+                log.info(tag,"online: ",online)
+
+                //get driver
+                let drivers = await driversDB.find()
+                console.log("get driver: ",drivers)
+
+                // Remove driver with matching body.driverId
+                let filteredDrivers = drivers.filter(driver => driver.driverId !== body.driverId);
+                console.log("Drivers after removal: ", filteredDrivers);
+
+                //is online?
+                let onlineDrivers = drivers.filter(driver => {
+                    let driverId = "driver:" + driver.pubkey; // Ensure this matches the format in the `online` array
+                    return online.includes(driverId);
+                });
+                console.log("Online drivers: ", onlineDrivers);
+                let orderInfo = await ordersDB.findOne({id:body.orderId})
+                //push to next one
+                //TODO use localation! wtf
+                orderInfo.driver = onlineDrivers[0]
+                publisher.publish('match', JSON.stringify(orderInfo));
+            }
+
 
             //must be lp add or remove
-            if(!body.type) throw Error("invalid type!")
-            if(!body.event) throw Error("invalid event!")
-            if(!body.terminalName) throw Error("invalid type!")
 
-            let session = {
-                terminalName:body.terminalName,
-                type:body.type,
-                event:body.event,
-                sessionId:body.sessionId,
-                location:body.location,
-                rate:body.rate,
-                TOTAL_CASH:body.TOTAL_CASH,
-                TOTAL_DAI:body.TOTAL_DAI,
-            }
-            let result = await sessionsDB.insert(session)
+            // if(!body.event) throw Error("invalid event!")
+            // if(!body.terminalName) throw Error("invalid type!")
 
-            log.debug(tag,"result: ",result)
-            return(result);
+
+
+            log.debug(tag,"output: ",output)
+            return(output);
         }catch(e){
             let errorResp:Error = {
                 success:false,
@@ -642,6 +705,49 @@ export class BanklessController extends Controller {
             throw new ApiError("error",503,"error: "+e.toString());
         }
     }
+
+    // //startSession
+    // @Post('/bankless/terminal/event')
+    // //CreateAppBody
+    // public async pushEvent(@Header('Authorization') authorization: string,@Body() body: any): Promise<any> {
+    //     let tag = TAG + " | pushEvent | "
+    //     try{
+    //         log.debug(tag,"body: ",body)
+    //         log.debug(tag,"authorization: ",authorization)
+    //         // if(!body.signer) throw Error("invalid signed payload missing signer!")
+    //         // if(!body.payload) throw Error("invalid signed payload missing payload!")
+    //         // if(!body.signature) throw Error("invalid signed payload missing !")
+    //         // if(!body.nonce) throw Error("invalid signed payload missing !")
+    //
+    //         //must be lp add or remove
+    //         if(!body.type) throw Error("invalid type!")
+    //         if(!body.event) throw Error("invalid event!")
+    //         if(!body.terminalName) throw Error("invalid type!")
+    //
+    //         let session = {
+    //             terminalName:body.terminalName,
+    //             type:body.type,
+    //             event:body.event,
+    //             sessionId:body.sessionId,
+    //             location:body.location,
+    //             rate:body.rate,
+    //             TOTAL_CASH:body.TOTAL_CASH,
+    //             TOTAL_DAI:body.TOTAL_DAI,
+    //         }
+    //         let result = await sessionsDB.insert(session)
+    //
+    //         log.debug(tag,"result: ",result)
+    //         return(result);
+    //     }catch(e){
+    //         let errorResp:Error = {
+    //             success:false,
+    //             tag,
+    //             e
+    //         }
+    //         log.error(tag,"e: ",{errorResp})
+    //         throw new ApiError("error",503,"error: "+e.toString());
+    //     }
+    // }
 
     //startSession
     @Post('/bankless/terminal/startSession')

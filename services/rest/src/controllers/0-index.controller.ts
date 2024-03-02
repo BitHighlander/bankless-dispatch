@@ -26,8 +26,6 @@ import {
 export class IndexController extends Controller {
 
     //remove api key
-
-
     /**
      *  Health Endpoint
      *  Gives me the health of the system

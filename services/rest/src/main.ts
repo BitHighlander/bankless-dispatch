@@ -335,9 +335,11 @@ subscriber.on('message', async function (channel, payloadS) {
             //send event to driver
             if(usersByUsername[payload.driverId])globalSockets[usersByUsername[payload.driverId]].emit('message', payloadS)
 
-            //send event to customer
+            //send event to terminal
             if(usersByUsername[payload.terminal])globalSockets[usersByUsername[payload.terminal]].emit('message', payloadS)
 
+            //send event to customer
+            if(usersByUsername[payload.customerId])globalSockets[usersByUsername[payload.customerId]].emit('message', payloadS)
         }
 
 
